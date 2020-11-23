@@ -202,12 +202,10 @@ class RepeatNode():
     # IMAGE MATCHING - THIS IS THE FUNCTION YOU WILL CREATE
     def ImageMatching(self, img_bgr, relative_odom_trans):
 
-        self.C += 1
+        
         if self.best_match_frame_id is not None:
-            print ('returning from here')
-            self.best_match_frame_id += 1
-            if self.best_match_frame_id > self.teach_dataset.shape[0]:
-                self.best_match_frame_id = self.best_match_frame_id_init
+            self.best_match_frame_id \
+            = (self.best_match_frame_id+1)%self.teach_dataset.shape[0]
             return self.best_match_frame_id, self.offsets
 
         
