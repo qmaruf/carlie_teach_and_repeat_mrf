@@ -61,6 +61,7 @@ class RepeatNode():
         self.best_match_frame_id = None
         self.offsets = None
         self.C = 0
+        self.best_match_frame_id_init = None
         
         # controller constants
         self.TARGET_FRAME_LOOKAHEAD = max(rospy.get_param('~target_frame_lookahead', 2), 1) # minimum is 1
@@ -204,8 +205,9 @@ class RepeatNode():
         self.C += 1
         if self.best_match_frame_id is not None:
             print ('returning from here')
-            if self.C%2==0:
-                self.best_match_frame_id += 1
+            self.best_match_frame_id += 1
+            if self.best_match_frame_id > self.teach_dataset.shape[0]:
+                self.best_match_frame_id = self.best_match_frame_id_init
             return self.best_match_frame_id, self.offsets
 
         
@@ -241,6 +243,7 @@ class RepeatNode():
         y_offset = img_proc.shape[1]//2 - self.patch_center_location[0]
         offsets = np.array([self.X_OFFSET_SCALE_FACTOR*0, self.Y_OFFSET_SCALE_FACTOR*y_offset, self.YAW_OFFSET_SCALE_FACTOR*0])
         self.best_match_frame_id, self.offsets = best_match_frame_id, offsets
+        self.best_match_frame_id_init = self.best_match_frame_id
         return best_match_frame_id, offsets
 
     # CONTROLLER
