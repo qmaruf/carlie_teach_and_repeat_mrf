@@ -54,14 +54,13 @@ class RepeatNode():
         self.YAW_OFFSET_SCALE_FACTOR = rospy.get_param('~yaw_offset_scale_factor', 0.0)
 
         # image matching constants - you may not need these, feel free to remove/replace
-        self.FRAME_SEARCH_WINDOW = rospy.get_param('~frame_search_window', 3)
+        self.FRAME_SEARCH_WINDOW = rospy.get_param('~frame_search_window', 25)
         self.IMAGE_COMPARISON_SIZE = (rospy.get_param('~image_comparison_size_x', 64), rospy.get_param('~image_comparison_size_y', 48))
         self.PATCH_PORTION = rospy.get_param('~patch_portion', 0.6)
 
-        ### ADD YOUR OWN CODE HERE ###
-        # Add in any other parameters that you want here. 
-        # These parameters can then be set within the launch file, if you want.
-        # See http://wiki.ros.org/roslaunch/XML/param and be careful with global vs private parameters
+        self.best_match_frame_id = None
+        self.offsets = None
+        self.C = 0
         
         # controller constants
         self.TARGET_FRAME_LOOKAHEAD = max(rospy.get_param('~target_frame_lookahead', 2), 1) # minimum is 1
@@ -201,20 +200,48 @@ class RepeatNode():
 
     # IMAGE MATCHING - THIS IS THE FUNCTION YOU WILL CREATE
     def ImageMatching(self, img_bgr, relative_odom_trans):
-        ### ADD YOUR OWN CODE ###
 
-        # STEP 1 - PREPROCESS IMAGE IF REQUIRED
+        self.C += 1
+        if self.best_match_frame_id is not None:
+            print ('returning from here')
+            if self.C%2==0:
+                self.best_match_frame_id += 1
+            return self.best_match_frame_id, self.offsets
 
-        # STEP 2 - FIND BEST MATCH IN TEACH SET 
+        
+        best_score = None
+        best_max_location = None
+        best_match_frame_id = None
 
-        # STEP 3 - FIND THE POSITION OF THE REPEAT FRAME RELATIVE TO THE BEST MATCHED TEACH FRAME
-        # offsets should be measured relative to the best matched teach image coordinate frame, as in
-        # x-offset should be positive if the car is in front of the best matched teach frame
-        # y-offset should be positive if the car is to the left of the best matched teach frame
-        # yaw-offset will be positive if car has rotated to the left
+        img_proc = cv.cvtColor(img_bgr, cv.COLOR_BGR2GRAY)
+        img_proc = cv.resize(img_proc, self.IMAGE_COMPARISON_SIZE)
 
-        # return - the matched teach frame ID and the relative offsets from matched teach frame to current repeat image
-        return 0, np.array([0, 0, 0])
+        
+        img_proc_patch = ImageCropCenter(img_proc, self.PATCH_PORTION)
+
+        
+        start_idx = int(max(self.current_matched_teach_frame_id-self.FRAME_SEARCH_WINDOW, 0))
+        end_idx = int(min(self.current_matched_teach_frame_id+self.FRAME_SEARCH_WINDOW+1, self.teach_dataset.shape[0]))
+        
+        for teach_frame_id in self.teach_dataset[start_idx:end_idx, 0]:        
+            teach_img = cv.imread(os.path.join(self.teach_dataset_processed_path, 'frame_%06d.png'%(teach_frame_id)), cv.IMREAD_GRAYSCALE)            
+            result1 = cv.matchTemplate(teach_img, img_proc_patch, cv.TM_CCOEFF)
+            result2 = cv.matchTemplate(teach_img, img_proc_patch, cv.TM_CCOEFF_NORMED)            
+            result3 = cv.matchTemplate(teach_img, img_proc_patch, cv.TM_CCORR_NORMED)                                    
+            result = (np.array(result1) + np.array(result2)+ np.array(result3))/3.0
+            
+            min_val, max_val, min_location, max_location = cv.minMaxLoc(result)
+
+            if best_score == None or best_score < max_val:
+                best_score = max_val
+                best_max_location = max_location
+                best_match_frame_id = int(teach_frame_id)
+
+        self.patch_center_location = np.array([max_location[0], max_location[1]]) + np.array([img_proc_patch.shape[1]/2.0, img_proc_patch.shape[0]/2.0])
+        y_offset = img_proc.shape[1]//2 - self.patch_center_location[0]
+        offsets = np.array([self.X_OFFSET_SCALE_FACTOR*0, self.Y_OFFSET_SCALE_FACTOR*y_offset, self.YAW_OFFSET_SCALE_FACTOR*0])
+        self.best_match_frame_id, self.offsets = best_match_frame_id, offsets
+        return best_match_frame_id, offsets
 
     # CONTROLLER
     def Controller(self, match_teach_id, offsets):
